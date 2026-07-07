@@ -24,6 +24,7 @@ type TrayApp struct {
 	mEdit      *systray.MenuItem
 	mReload    *systray.MenuItem
 	mUsage     *systray.MenuItem
+	mAdmin     *systray.MenuItem
 	mStatus    *systray.MenuItem
 	mAutoStart *systray.MenuItem
 	mQuit      *systray.MenuItem
@@ -56,6 +57,7 @@ func (t *TrayApp) onReady() {
 	t.mEdit = systray.AddMenuItem("编辑配置", "用系统编辑器打开 config.yaml")
 	t.mReload = systray.AddMenuItem("重新加载配置", "从磁盘重新读取配置")
 	t.mUsage = systray.AddMenuItem("使用说明", "查看 Agent 配置方法")
+	t.mAdmin = systray.AddMenuItem("Tailscale 管理后台", "在浏览器打开 admin console")
 	t.mAutoStart = systray.AddMenuItem("启动时自动连接", "程序启动后自动连接")
 	if t.cfg.autostart() {
 		t.mAutoStart.Check()
@@ -97,6 +99,8 @@ func (t *TrayApp) handleClicks() {
 			t.reloadConfig()
 		case <-t.mUsage.ClickedCh:
 			t.showUsage()
+		case <-t.mAdmin.ClickedCh:
+			openBrowser("https://login.tailscale.com/admin/machines")
 		case <-t.mAutoStart.ClickedCh:
 			t.toggleAutostart()
 		case <-t.mQuit.ClickedCh:
