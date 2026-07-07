@@ -42,12 +42,13 @@ type Target struct {
 }
 
 type Config struct {
-	AuthKey   string   `yaml:"authkey"   json:"authkey"`
-	Hostname  string   `yaml:"hostname"  json:"hostname"`
-	Ephemeral *bool    `yaml:"ephemeral" json:"ephemeral"`
-	Listen    string   `yaml:"listen"    json:"listen"`
-	StateDir  string   `yaml:"state-dir" json:"stateDir"`
-	Targets   []Target `yaml:"targets"   json:"targets"`
+	AuthKey   string   `yaml:"authkey"    json:"authkey"`
+	Hostname  string   `yaml:"hostname"   json:"hostname"`
+	Ephemeral *bool    `yaml:"ephemeral"  json:"ephemeral"`
+	Listen    string   `yaml:"listen"     json:"listen"`
+	StateDir  string   `yaml:"state-dir"  json:"stateDir"`
+	Targets   []Target `yaml:"targets"    json:"targets"`
+	AutoStart bool     `yaml:"autostart"  json:"autostart"`
 }
 
 func defaultConfig() Config {
@@ -57,6 +58,15 @@ func defaultConfig() Config {
 		Ephemeral: &t,
 		Listen:    ":18900",
 	}
+}
+
+// autostart returns the configured autostart flag.
+func (c Config) autostart() bool { return c.AutoStart }
+
+// withAutostart returns a copy with the autostart flag changed.
+func (c Config) withAutostart(v bool) Config {
+	c.AutoStart = v
+	return c
 }
 
 func configFilePath() string {

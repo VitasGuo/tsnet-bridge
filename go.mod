@@ -3,6 +3,7 @@ module github.com/VitasGuo/tsnet-bridge
 go 1.24.0
 
 require (
+	github.com/getlantern/systray v1.2.2
 	gopkg.in/yaml.v3 v3.0.1
 	tailscale.com v1.82.0
 )
@@ -31,8 +32,15 @@ require (
 	github.com/digitalocean/go-smbios v0.0.0-20180907143718-390a4f403a8e // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gaissmai/bart v0.18.0 // indirect
+	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
+	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7 // indirect
+	github.com/getlantern/golog v0.0.0-20190830074920-4ef2e798c2d7 // indirect
+	github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 // indirect
+	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
+	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-json-experiment/json v0.0.0-20250223041408-d3c622f1b874 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/btree v1.1.2 // indirect
@@ -54,6 +62,7 @@ require (
 	github.com/mdlayher/socket v0.5.0 // indirect
 	github.com/miekg/dns v1.1.58 // indirect
 	github.com/mitchellh/go-ps v1.0.0 // indirect
+	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/prometheus-community/pro-bing v0.4.0 // indirect
 	github.com/safchain/ethtool v0.3.0 // indirect

@@ -17,6 +17,9 @@ listen: ":18900"
 # State directory for tsnet (default: ~/.tsnet-bridge/state)
 # state-dir: ""
 
+# Auto-connect on app launch (tray mode only)
+autostart: false
+
 # Remote LLM backends on the tailnet.
 # Single target: served at http://localhost:18900/v1/... (standard OpenAI API)
 # Multiple targets: served at http://localhost:18900/<name>/v1/...

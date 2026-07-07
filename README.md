@@ -15,16 +15,20 @@ Agent  ──HTTP──►  tsnet-bridge  ──WireGuard──►  Remote LLM (
 - **Zero agent integration** — agent just points to a local URL, nothing to learn
 - **End-to-end encrypted** — WireGuard between bridge and remote host
 - **Single binary, no dependencies** — one 30 MB `.exe`, drop in and run
-- **Web UI included** — configure, start, stop, test from a browser
+- **System tray UI** — right-click to start/stop/edit config, icon color reflects state
+- **Web UI fallback** — run with `--web` for browser-based control
 
 ## Quick start
 
 1. Download `tsnet-bridge.exe` (or build from source — see below).
 2. On your GPU host: install Tailscale + LM Studio / Ollama, note the host's Tailscale IP (`100.x.x.x`) and port.
 3. Generate an **ephemeral** Tailscale auth key at <https://login.tailscale.com/admin/settings/keys>.
-4. Double-click `tsnet-bridge.exe`. A browser window opens with the Web UI.
-5. Fill in authkey, target `100.x.x.x:1234`, optional API key. Click **启动**.
-6. Point your agent at `http://localhost:18900/v1` with any API key.
+4. Double-click `tsnet-bridge.exe`. A tray icon appears in the bottom-right notification area.
+5. Right-click the tray icon → **编辑配置**. Notepad opens `~/.tsnet-bridge/config.yaml`. Fill in authkey, target `100.x.x.x:1234`, optional apikey. Save and close.
+6. Right-click the tray icon → **重新加载配置** → **启动**. The icon turns green when connected.
+7. Point your agent at `http://localhost:18900/v1` with any API key.
+
+Prefer a browser UI? Run `tsnet-bridge.exe --web` instead — same functionality, just served at `http://127.0.0.1:18901`.
 
 ## Build from source
 
@@ -52,6 +56,7 @@ authkey: "tskey-auth-xxxxx-xxxxx"   # ephemeral key from Tailscale admin
 hostname: "tsnet-bridge"             # this node's name on the tailnet
 ephemeral: true                      # auto-remove node on exit
 listen: ":18900"                     # local HTTP server address
+autostart: false                     # auto-connect on launch (tray mode)
 
 targets:
   - name: default
@@ -88,9 +93,9 @@ See [`.gitignore`](./.gitignore). Notably:
 
 ## Roadmap
 
-- [ ] System tray icon (Windows / macOS)
+- [x] System tray icon (Windows / macOS / Linux)
 - [ ] Auto-reconnect on tailnet dropout
-- [ ] Per-target latency / token throughput stats in Web UI
+- [ ] Per-target latency / token throughput stats
 - [ ] Optional SOCKS5 mode for non-HTTP agents
 
 ## License
