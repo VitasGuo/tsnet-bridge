@@ -76,6 +76,81 @@ targets:
 
 With multiple targets, each is served at `http://localhost:18900/<name>/v1/...`.
 
+## Point your agent at the bridge
+
+Once the tray icon turns green, any OpenAI-compatible agent can use the bridge. The bridge auto-injects the real API key, so fill in any non-empty string for `apiKey`.
+
+| Field | Value |
+|-------|-------|
+| Base URL | `http://localhost:18900/v1` |
+| API Key | any non-empty string (e.g. `sk-bridge`) |
+| Model | one of the IDs returned by `/v1/models` |
+
+### OpenCode (`opencode.json`)
+
+```json
+{
+  "provider": {
+    "openai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "http://localhost:18900/v1",
+        "apiKey": "sk-bridge"
+      },
+      "models": {
+        "google/gemma-4-12b-qat": { "name": "gemma-4-12b" }
+      }
+    }
+  }
+}
+```
+
+### Cursor
+
+Settings → Models → Override OpenAI Base URL:
+```
+http://localhost:18900/v1
+```
+API Key: `sk-bridge` · Model ID: `google/gemma-4-12b-qat`
+
+### Cline / Continue / VSCode extensions
+
+```json
+{
+  "apiProvider": "openai",
+  "apiBase": "http://localhost:18900/v1",
+  "apiKey": "sk-bridge",
+  "model": "google/gemma-4-12b-qat"
+}
+```
+
+### Python (openai SDK)
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:18900/v1", api_key="sk-bridge")
+resp = client.chat.completions.create(
+    model="google/gemma-4-12b-qat",
+    messages=[{"role": "user", "content": "你好"}],
+)
+print(resp.choices[0].message.content)
+```
+
+### curl
+
+```bash
+curl http://localhost:18900/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-bridge" \
+  -d '{"model":"google/gemma-4-12b-qat","messages":[{"role":"user","content":"hi"}]}'
+```
+
+### Notes
+
+- Model IDs must match `/v1/models` exactly (case-sensitive, including slashes).
+- Embedding models (e.g. `text-embedding-nomic-embed-text-v1.5`) only work with `/v1/embeddings`, not chat.
+- For multiple targets, use `http://localhost:18900/<name>/v1` as the Base URL.
+
 ## Security
 
 - **Software ships with no credentials.** All user data lives in `~/.tsnet-bridge/`, never in the binary's directory.
@@ -100,4 +175,6 @@ See [`.gitignore`](./.gitignore). Notably:
 
 ## License
 
-MIT
+BSD 3-Clause License — see [LICENSE](./LICENSE).
+
+This project embeds [tailscale.com](https://github.com/tailscale/tailscale) (BSD 3-Clause) via the `tsnet` package, [systray](https://github.com/getlantern/systray) (Apache 2.0), and [yaml.v3](https://github.com/go-yaml/yaml) (Apache 2.0). Many thanks to the Tailscale team for opening up `tsnet` — without it this project would not be possible.
