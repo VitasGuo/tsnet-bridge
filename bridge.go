@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,30 @@ func (c Config) autostart() bool { return c.AutoStart }
 // withAutostart returns a copy with the autostart flag changed.
 func (c Config) withAutostart(v bool) Config {
 	c.AutoStart = v
+	return c
+}
+
+// localhostOnly returns true if listen is bound to loopback only.
+func (c Config) localhostOnly() bool {
+	return strings.HasPrefix(c.Listen, "127.0.0.1:") || strings.HasPrefix(c.Listen, "localhost:")
+}
+
+// withLocalhostOnly toggles the listen address between ":port" and "127.0.0.1:port".
+// Preserves the port portion. Returns a copy.
+func (c Config) withLocalhostOnly(v bool) Config {
+	// Extract port from current listen
+	port := c.Listen
+	if i := strings.LastIndex(port, ":"); i >= 0 {
+		port = port[i+1:]
+	}
+	if port == "" {
+		port = "18900"
+	}
+	if v {
+		c.Listen = "127.0.0.1:" + port
+	} else {
+		c.Listen = ":" + port
+	}
 	return c
 }
 

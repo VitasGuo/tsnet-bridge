@@ -19,15 +19,16 @@ type TrayApp struct {
 	mu     sync.Mutex
 	cfg    Config
 
-	mStart     *systray.MenuItem
-	mStop      *systray.MenuItem
-	mEdit      *systray.MenuItem
-	mReload    *systray.MenuItem
-	mUsage     *systray.MenuItem
-	mAdmin     *systray.MenuItem
-	mStatus    *systray.MenuItem
-	mAutoStart *systray.MenuItem
-	mQuit      *systray.MenuItem
+	mStart       *systray.MenuItem
+	mStop        *systray.MenuItem
+	mEdit        *systray.MenuItem
+	mReload      *systray.MenuItem
+	mUsage       *systray.MenuItem
+	mAdmin       *systray.MenuItem
+	mStatus      *systray.MenuItem
+	mAutoStart   *systray.MenuItem
+	mLocalhost   *systray.MenuItem
+	mQuit        *systray.MenuItem
 }
 
 func newTrayApp(bridge *Bridge, cfg Config) *TrayApp {
@@ -61,6 +62,10 @@ func (t *TrayApp) onReady() {
 	t.mAutoStart = systray.AddMenuItem("启动时自动连接", "程序启动后自动连接")
 	if t.cfg.autostart() {
 		t.mAutoStart.Check()
+	}
+	t.mLocalhost = systray.AddMenuItem("仅本机访问 (127.0.0.1)", "限制只有本机能连桥接端口")
+	if t.cfg.localhostOnly() {
+		t.mLocalhost.Check()
 	}
 
 	systray.AddSeparator()
@@ -103,6 +108,8 @@ func (t *TrayApp) handleClicks() {
 			openBrowser("https://login.tailscale.com/admin/machines")
 		case <-t.mAutoStart.ClickedCh:
 			t.toggleAutostart()
+		case <-t.mLocalhost.ClickedCh:
+			t.toggleLocalhost()
 		case <-t.mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -158,6 +165,36 @@ func (t *TrayApp) toggleAutostart() {
 	}
 	if err := saveConfig(cfg); err != nil {
 		log.Printf("save autostart flag failed: %v", err)
+	}
+}
+
+// toggleLocalhost flips the listen address between 0.0.0.0 and 127.0.0.1.
+// If the bridge is running, it must be restarted for the change to take effect.
+func (t *TrayApp) toggleLocalhost() {
+	t.mu.Lock()
+	wasRunning := t.bridge.Status().State == StateRunning
+	t.cfg = t.cfg.withLocalhostOnly(!t.cfg.localhostOnly())
+	cfg := t.cfg
+	t.mu.Unlock()
+
+	if cfg.localhostOnly() {
+		t.mLocalhost.Check()
+	} else {
+		t.mLocalhost.Uncheck()
+	}
+	if err := saveConfig(cfg); err != nil {
+		log.Printf("save localhost flag failed: %v", err)
+	}
+
+	// Restart bridge if it was running so the new bind address takes effect.
+	if wasRunning {
+		log.Printf("listen address changed, restarting bridge...")
+		_ = t.bridge.Stop()
+		// Small delay to let listener close before rebinding.
+		time.Sleep(300 * time.Millisecond)
+		if err := t.bridge.Start(cfg); err != nil {
+			log.Printf("restart after listen change failed: %v", err)
+		}
 	}
 }
 
@@ -338,8 +375,10 @@ http://localhost:18900/<name>/v1/...
 
 - 软件本身不含任何用户信息，凭据存在 ~/.tsnet-bridge/config.yaml
 - Tailscale auth key 用 ephemeral 类型，程序退出后节点自动从尾网清除
-- WireGuard 端到端加密，本地端口默认监听 0.0.0.0:18900
-  （如只想本机访问，把 listen 改成 "127.0.0.1:18900"）
+- WireGuard 端到端加密
+- 本地端口默认监听 0.0.0.0:18900（同局域网其他机器可访问）
+  右键托盘勾选"仅本机访问 (127.0.0.1)"可限制只允许本机连接
+  桥接运行中切换会自动重启生效
 
 【八、许可证】
 
