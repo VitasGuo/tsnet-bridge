@@ -1,0 +1,31 @@
+# tsnet-bridge configuration
+# Place this file as ./tsnet-bridge.yaml or ~/.tsnet-bridge/config.yaml
+
+# Tailscale auth key (generate at https://login.tailscale.com/admin/settings/keys)
+# Can also be set via TS_AUTHKEY env var.
+authkey: ""
+
+# This node's hostname on the tailnet
+hostname: "tsnet-bridge"
+
+# Register as ephemeral node (auto-removed from tailnet on exit)
+ephemeral: true
+
+# Local HTTP server address — this is what your AI agent connects to
+listen: ":18900"
+
+# State directory for tsnet (default: ~/.tsnet-bridge/state)
+# state-dir: ""
+
+# Remote LLM backends on the tailnet.
+# Single target: served at http://localhost:18900/v1/... (standard OpenAI API)
+# Multiple targets: served at http://localhost:18900/<name>/v1/...
+targets:
+  - name: default
+    address: "gpu-host:11434"
+
+  # Example: multiple GPU machines
+  # - name: gpu1
+  #   address: "gpu1:11434"
+  # - name: gpu2
+  #   address: "gpu2:11434"

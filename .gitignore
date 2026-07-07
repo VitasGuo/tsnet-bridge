@@ -1,0 +1,37 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Build output
+/dist/
+/bin/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# === User secrets — NEVER commit ===
+# Local config with real credentials
+tsnet-bridge.yaml
+config.yaml
+*.local.yaml
+
+# Tailscale state (contains node identity / private keys)
+.tsnet-bridge/
+state/
+
+# Logs
+*.log
+
+# Test artifacts
+*.test
+*.out

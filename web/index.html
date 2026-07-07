@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>tsnet-bridge</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e0e0e0;--muted:#6b7280;--accent:#3b82f6;--green:#10b981;--red:#ef4444;--yellow:#f59e0b}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:20px}
+  .container{max-width:680px;width:100%}
+  .header{text-align:center;margin-bottom:24px}
+  .header h1{font-size:24px;font-weight:600;margin-bottom:4px}
+  .header p{color:var(--muted);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;margin-bottom:16px}
+  .status-bar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:14px}
+  .status-bar.idle{background:rgba(107,114,128,.15)}
+  .status-bar.connecting{background:rgba(245,158,11,.15)}
+  .status-bar.running{background:rgba(16,185,129,.15)}
+  .status-bar.error{background:rgba(239,68,68,.15)}
+  .dot{width:8px;height:8px;border-radius:50%}
+  .dot.idle{background:var(--muted)}
+  .dot.connecting{background:var(--yellow);animation:pulse 1s infinite}
+  .dot.running{background:var(--green)}
+  .dot.error{background:var(--red)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-size:14px;margin-bottom:16px;transition:border-color .2s}
+  .input:focus{outline:none;border-color:var(--accent)}
+  .input.mono{font-family:"SF Mono",Consolas,monospace;font-size:13px}
+  .row{display:flex;gap:12px}
+  .row .col{flex:1}
+  .btn{width:100%;padding:12px;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .2s}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:#2563eb}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+  .btn-danger{background:var(--red);color:#fff}
+  .btn-danger:hover{background:#dc2626}
+  .btn-secondary{background:var(--border);color:var(--text)}
+  .btn-secondary:hover{background:#3a3d4a}
+  .btn-row{display:flex;gap:12px;margin-top:8px}
+  .info{font-size:12px;color:var(--muted);margin-top:4px}
+  .model-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .model-tag{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;font-family:monospace;cursor:pointer;transition:border-color .2s}
+  .model-tag:hover{border-color:var(--accent)}
+  .test-result{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:12px;font-size:13px;white-space:pre-wrap;font-family:monospace;max-height:200px;overflow-y:auto;display:none}
+  .test-result.show{display:block}
+  a{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>tsnet-bridge</h1>
+    <p>通过 Tailscale 隧道桥接远程 LLM 到本地端口</p>
+  </div>
+
+  <div id="statusBar" class="status-bar idle">
+    <span id="statusDot" class="dot idle"></span>
+    <span id="statusText">检查中...</span>
+  </div>
+
+  <div class="card">
+    <label class="label">Tailscale Auth Key</label>
+    <input id="authkey" class="input mono" type="password" placeholder="tskey-auth-xxxxx">
+    <div class="info">从 <a href="https://login.tailscale.com/admin/settings/keys" target="_blank">Tailscale Admin</a> 生成 Ephemeral key</div>
+
+    <div class="row">
+      <div class="col">
+        <label class="label">Tailnet 主机名</label>
+        <input id="hostname" class="input" type="text" value="tsnet-bridge">
+      </div>
+      <div class="col">
+        <label class="label">本地端口</label>
+        <input id="listen" class="input" type="text" value=":18900">
+      </div>
+    </div>
+
+    <label class="label">远程 LLM 地址 (Tailscale IP:端口)</label>
+    <input id="targetAddr" class="input mono" type="text" placeholder="100.x.x.x:11434">
+
+    <label class="label">LLM API Key (可选，自动注入到请求头)</label>
+    <input id="apiKey" class="input mono" type="password" placeholder="sk-lm-xxx 或留空">
+
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="saveConfig()">保存配置</button>
+      <button id="startBtn" class="btn btn-primary" onclick="startBridge()">启动</button>
+      <button id="stopBtn" class="btn btn-danger" onclick="stopBridge()" style="display:none">停止</button>
+    </div>
+  </div>
+
+  <div id="modelsCard" class="card" style="display:none">
+    <label class="label">可用模型</label>
+    <div id="modelList" class="model-list"></div>
+    <button class="btn btn-secondary" style="margin-top:12px" onclick="loadModels()">刷新模型列表</button>
+  </div>
+
+  <div id="testCard" class="card" style="display:none">
+    <label class="label">测试对话</label>
+    <div class="row">
+      <div class="col">
+        <input id="testModel" class="input mono" type="text" placeholder="选择上方模型或手动输入">
+      </div>
+    </div>
+    <input id="testMessage" class="input" type="text" placeholder="输入测试消息..." value="你好">
+    <button class="btn btn-primary" onclick="testChat()">发送测试</button>
+    <div id="testResult" class="test-result"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+async function api(path, opts={}) {
+  const resp = await fetch(path, opts);
+  return resp;
+}
+
+async function apiJSON(path, opts={}) {
+  const resp = await fetch(path, opts);
+  return resp.json();
+}
+
+async function loadConfig() {
+  const cfg = await apiJSON('/api/config');
+  $('authkey').value = cfg.authkey || '';
+  $('hostname').value = cfg.hostname || 'tsnet-bridge';
+  $('listen').value = cfg.listen || ':18900';
+  if (cfg.targets && cfg.targets[0]) {
+    $('targetAddr').value = cfg.targets[0].address || '';
+    $('apiKey').value = cfg.targets[0].apikey || '';
+  }
+}
+
+function getConfig() {
+  return {
+    authkey: $('authkey').value,
+    hostname: $('hostname').value || 'tsnet-bridge',
+    listen: $('listen').value || ':18900',
+    ephemeral: true,
+    targets: [{
+      name: 'default',
+      address: $('targetAddr').value,
+      apikey: $('apiKey').value
+    }]
+  };
+}
+
+async function saveConfig() {
+  const cfg = getConfig();
+  await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(cfg)
+  });
+  alert('配置已保存');
+}
+
+async function startBridge() {
+  const cfg = getConfig();
+  await fetch('/api/config', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(cfg)
+  });
+  const r = await apiJSON('/api/start', {method:'POST'});
+  if (r.error) { alert('启动失败: ' + r.error); return; }
+  pollStatus();
+}
+
+async function stopBridge() {
+  await apiJSON('/api/stop', {method:'POST'});
+  pollStatus();
+}
+
+async function pollStatus() {
+  const s = await apiJSON('/api/status');
+  const bar = $('statusBar');
+  const dot = $('statusDot');
+  const text = $('statusText');
+
+  bar.className = 'status-bar ' + s.state;
+  dot.className = 'dot ' + s.state;
+
+  const labels = {idle:'未运行', connecting:'连接中...', running:'运行中', error:'错误'};
+  let label = labels[s.state] || s.state;
+  if (s.state === 'running' && s.ip) label += ` · ${s.ip}`;
+  if (s.state === 'error' && s.error) label += ` · ${s.error}`;
+  text.textContent = label;
+
+  $('startBtn').style.display = s.state === 'running' || s.state === 'connecting' ? 'none' : '';
+  $('stopBtn').style.display = s.state === 'running' || s.state === 'connecting' ? '' : 'none';
+
+  if (s.state === 'running') {
+    $('modelsCard').style.display = '';
+    $('testCard').style.display = '';
+    if (!$('modelList').children.length) loadModels();
+  } else {
+    $('modelsCard').style.display = 'none';
+    $('testCard').style.display = 'none';
+  }
+}
+
+async function loadModels() {
+  try {
+    const resp = await fetch('/api/models');
+    const data = await resp.json();
+    const list = $('modelList');
+    list.innerHTML = '';
+    if (data.data) {
+      for (const m of data.data) {
+        const tag = document.createElement('div');
+        tag.className = 'model-tag';
+        tag.textContent = m.id;
+        tag.onclick = () => $('testModel').value = m.id;
+        list.appendChild(tag);
+      }
+    }
+  } catch(e) {
+    console.error('load models:', e);
+  }
+}
+
+async function testChat() {
+  const model = $('testModel').value;
+  const msg = $('testMessage').value;
+  if (!model) { alert('请先选择模型'); return; }
+  const result = $('testResult');
+  result.className = 'test-result show';
+  result.textContent = '等待响应...';
+  try {
+    const resp = await fetch('/api/test', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({model, message: msg})
+    });
+    const data = await resp.json();
+    if (data.choices && data.choices[0]) {
+      result.textContent = data.choices[0].message.content || data.choices[0].message.reasoning_content || JSON.stringify(data, null, 2);
+    } else {
+      result.textContent = JSON.stringify(data, null, 2);
+    }
+  } catch(e) {
+    result.textContent = '错误: ' + e.message;
+  }
+}
+
+// Init
+loadConfig();
+pollStatus();
+setInterval(pollStatus, 3000);
+</script>
+</body>
+</html>
