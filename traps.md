@@ -44,3 +44,18 @@ PowerShell Here-String 使用 `@'` 和 `'@` 作为定界符，但在脚本中使
 **根因**: 复杂的 PowerShell 脚本通过 `-Command` 参数传递时超出命令行长度限制。
 
 **解决方案**: 将脚本保存到 `.ps1` 文件，然后通过文件路径执行 (`.\release-v0.2.0.ps1`)。
+
+---
+
+## 5. HTTPS 后端 WebSocket 连接失败（OpenClaw）
+
+**现象**: 浏览器通过桥接访问 OpenClaw（HTTPS 后端）时，Gateway WebSocket 连接断开，报错 `disconnected (1006): no reason`，提示"检查 WebSocket URL；当 Gateway 位于 HTTPS/Tailscale Serve 后面时使用 wss://"。
+
+**根因**: [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go)
+Go 标准库的 `httputil.ReverseProxy` 对 HTTPS 后端的 WebSocket 升级支持不完善，TLS 握手后 WebSocket 隧道无法正常建立。此外 `X-Forwarded-Proto` 设为 `https` 会导致后端生成 `wss://` URL，但客户端是 HTTP 连接无法使用。
+
+**解决方案**: 
+1. [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go) 新增 `handleWebSocketTunnel()` 函数，检测到 `Upgrade: websocket` 请求时，直接创建原始 TCP 隧道（经 Tailscale `srv.Dial` 连接后端，HTTPS 场景做 TLS 握手，然后透传双向数据）
+2. 修改 `buildHandler()` 中的路由逻辑，WebSocket 升级请求走隧道，普通 HTTP 请求仍走 `ReverseProxy`
+3. 添加 `isWebSocketUpgrade()` 辅助函数
+4. `X-Forwarded-Proto` 从 `https` 改为 `http`，`X-Forwarded-Host` 保存原始客户端 Host
