@@ -278,16 +278,19 @@ func (t *TrayApp) showUsage() {
 
 【一、什么是 tsnet-bridge】
 
-一个 30MB 的单文件程序，通过 Tailscale 加密隧道把远程 GPU 主机上的
-大模型（LM Studio / Ollama / vLLM）桥接到本地端口。
+一个 30MB 的单文件程序，通过 Tailscale 加密隧道（WireGuard）把远程
+主机上的服务桥接到本地端口。
 
-对 Agent 来说，它就是一个本地 OpenAI 兼容 API，agent 完全感知不到
-Tailscale 的存在。所有流量端到端加密（WireGuard）。
+支持的场景：
+- LLM API（LM Studio / Ollama / vLLM）→ agent 以 OpenAI 兼容 API 直连
+- Web UI（OpenClaw 等）→ 浏览器访问 http://localhost:18900/<name>/...
+
+对任何客户端来说，服务就像跑在本地一样，完全感知不到 Tailscale 的存在。
+所有流量端到端加密。
 
 【二、首次配置】
 
-1. GPU 主机：装好 Tailscale + LM Studio/Ollama，记下 Tailscale IP
-   （形如 100.x.x.x）和端口（LM Studio 默认 1234）
+1. 远程主机：装好 Tailscale，记下 IP（形如 100.x.x.x）或 DNS 域名
 2. 去 https://login.tailscale.com/admin/settings/keys 生成
    Ephemeral auth key（格式：tskey-auth-xxxxx-xxxxx）
 3. 右键托盘 → 编辑配置 → 填写以下内容，保存关闭：
@@ -297,23 +300,27 @@ Tailscale 的存在。所有流量端到端加密（WireGuard）。
    ephemeral: true
    listen: ":18900"
    targets:
-     - name: default
+     - name: default          # LLM 接口
        address: "100.x.x.x:1234"
-       apikey: "sk-lm-xxx"     # LM Studio 的 API key
+       apikey: "sk-lm-xxx"
 
-   也可以使用 Tailscale DNS 域名代替 IP 地址：
-     - name: openclaw
+     - name: openclaw         # Web UI（HTTPS + DNS 域名）
        address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
-       scheme: https           # HTTPS 服务需要加 scheme: https
+       scheme: https
+
+   # 多个 target 写在同一个 targets: 列表里，每个是一个 - name: 条目
 
 4. 右键托盘 → 重新加载配置 → 启动
 5. 图标变绿 = 连接成功
 
-【三、Agent 配置（关键）】
+【三、单 target 的 Agent 配置】
 
-桥接地址：  http://localhost:18900/v1
-API Key：   任意非空字符串（如 sk-bridge），bridge 会自动注入真实 key
-模型名：    必须精确匹配 /v1/models 返回的 ID（区分大小写）
+如果只有一个 target（或只想用 default），桥接地址就是标准 OpenAI 路径：
+
+   http://localhost:18900/v1
+
+API Key 填任意非空字符串（如 sk-bridge），bridge 会自动注入真实 key。
+模型名必须精确匹配 /v1/models 返回的 ID（区分大小写）。
 
 --- OpenCode (opencode.json) ---
 {
@@ -359,25 +366,31 @@ curl http://localhost:18900/v1/chat/completions ^
   -H "Authorization: Bearer sk-bridge" ^
   -d "{\"model\":\"google/gemma-4-12b-qat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"
 
-【四、查看可用模型】
+【四、多 target 的配置方法】
+
+多个 target 时，每个 target 通过独立路径访问：
+
+   LLM 接口：  http://localhost:18900/default/v1/...
+   OpenClaw：  http://localhost:18900/openclaw/...
+
+注意：
+- LLM target（如 default）的路径是 /<name>/v1/...，/v1 是 OpenAI API 前缀
+- 非 LLM target（如 openclaw）的路径直接是 /<name>/...，不需要 /v1
+- 浏览器访问 OpenClaw：http://localhost:18900/openclaw/
+
+【五、查看可用模型】
 
 浏览器访问 http://localhost:18900/v1/models
 或在终端：curl http://localhost:18900/v1/models
 
-【五、状态图标颜色】
+多 target 时：http://localhost:18900/<name>/v1/models
+
+【六、状态图标颜色】
 
 灰色 = 未启动
 黄色 = 连接中
 绿色 = 运行中（后面显示 Tailscale IP）
 红色 = 错误（后面显示错误信息）
-
-【六、多目标路由】
-
-配置多个 targets 时，每个 target 走独立路径：
-http://localhost:18900/<name>/v1/...
-
-地址支持 Tailscale DNS 域名（如 vitasguo-g16-pro.tailc66d5e.ts.net），
-也支持 raw IP。HTTPS 服务需要加 scheme: https。
 
 【七、安全说明】
 

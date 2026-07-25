@@ -1,12 +1,12 @@
 # tsnet-bridge
 
-Bridge a local port to a remote LLM over Tailscale — without installing Tailscale on your machine.
+Bridge a local port to any remote service over Tailscale — without installing Tailscale on your machine.
 
-Any AI agent (opencode, cursor, trae, cline, …) connects to `http://localhost:18900/v1` as if it were a local OpenAI-compatible LLM. The bridge transparently tunnels traffic through an embedded Tailscale (WireGuard) connection to your GPU host on the tailnet.
+Any AI agent (opencode, cursor, trae, cline, …) connects to `http://localhost:18900/v1` as if it were a local OpenAI-compatible LLM. You can also access web UIs (OpenClaw, etc.) through the same bridge. The bridge transparently tunnels traffic through an embedded Tailscale (WireGuard) connection to your remote host on the tailnet.
 
 ```
-Agent  ──HTTP──►  tsnet-bridge  ──WireGuard──►  Remote LLM (LM Studio / Ollama / vLLM)
-        localhost:18900                  100.x.x.x:1234
+Agent / Browser  ──HTTP──►  tsnet-bridge  ──WireGuard──►  Remote Service (LLM / Web UI)
+                   localhost:18900                  100.x.x.x:1234
 ```
 
 ## Why
@@ -21,12 +21,12 @@ Agent  ──HTTP──►  tsnet-bridge  ──WireGuard──►  Remote LLM (
 ## Quick start
 
 1. Download `tsnet-bridge.exe` (or build from source — see below).
-2. On your GPU host: install Tailscale + LM Studio / Ollama, note the host's Tailscale IP (`100.x.x.x`) and port.
+2. On your remote host: install Tailscale, note the host's Tailscale IP (`100.x.x.x`) or DNS name.
 3. Generate an **ephemeral** Tailscale auth key at <https://login.tailscale.com/admin/settings/keys>.
 4. Double-click `tsnet-bridge.exe`. A tray icon appears in the bottom-right notification area.
-5. Right-click the tray icon → **编辑配置**. Notepad opens `~/.tsnet-bridge/config.yaml`. Fill in authkey, target `100.x.x.x:1234`, optional apikey. Save and close.
+5. Right-click the tray icon → **编辑配置**. Notepad opens `~/.tsnet-bridge/config.yaml`. Fill in authkey, target(s), and optional apikey. Save and close.
 6. Right-click the tray icon → **重新加载配置** → **启动**. The icon turns green when connected.
-7. Point your agent at `http://localhost:18900/v1` with any API key.
+7. Point your agent at `http://localhost:18900/v1` (single target) or `http://localhost:18900/<name>/v1` (multiple targets).
 
 Prefer a browser UI? Run `tsnet-bridge.exe --web` instead — same functionality, just served at `http://127.0.0.1:18901`.
 
@@ -62,6 +62,10 @@ targets:
   - name: default
     address: "100.93.126.41:1234"    # remote LLM host:port on tailnet
     apikey: "sk-lm-xxx"              # optional, injected as Bearer token
+
+  - name: openclaw                   # Web UI via HTTPS + DNS
+    address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+    scheme: https
 ```
 
 ### Multiple targets
@@ -74,7 +78,12 @@ targets:
     address: "gpu2:11434"
 ```
 
-With multiple targets, each is served at `http://localhost:18900/<name>/v1/...`.
+With multiple targets, each is served at its own path:
+
+| Target type | Access URL | Example |
+|-------------|-----------|---------|
+| LLM (OpenAI API) | `http://localhost:18900/<name>/v1/...` | `http://localhost:18900/default/v1/chat/completions` |
+| Web UI / other | `http://localhost:18900/<name>/...` | `http://localhost:18900/openclaw/` |
 
 ### Connecting via HTTPS or Tailscale DNS
 
@@ -160,7 +169,8 @@ curl http://localhost:18900/v1/chat/completions \
 
 - Model IDs must match `/v1/models` exactly (case-sensitive, including slashes).
 - Embedding models (e.g. `text-embedding-nomic-embed-text-v1.5`) only work with `/v1/embeddings`, not chat.
-- For multiple targets, use `http://localhost:18900/<name>/v1` as the Base URL.
+- For multiple targets, use `http://localhost:18900/<name>/v1` as the Base URL for LLM targets.
+- Non-LLM targets (e.g. OpenClaw web UI) are accessed at `http://localhost:18900/<name>/` — open that URL in a browser.
 
 ## Security
 
