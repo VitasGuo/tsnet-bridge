@@ -301,6 +301,11 @@ Tailscale 的存在。所有流量端到端加密（WireGuard）。
        address: "100.x.x.x:1234"
        apikey: "sk-lm-xxx"     # LM Studio 的 API key
 
+   也可以使用 Tailscale DNS 域名代替 IP 地址：
+     - name: openclaw
+       address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+       scheme: https           # HTTPS 服务需要加 scheme: https
+
 4. 右键托盘 → 重新加载配置 → 启动
 5. 图标变绿 = 连接成功
 
@@ -366,10 +371,13 @@ curl http://localhost:18900/v1/chat/completions ^
 绿色 = 运行中（后面显示 Tailscale IP）
 红色 = 错误（后面显示错误信息）
 
-【六、多 GPU 主机路由】
+【六、多目标路由】
 
 配置多个 targets 时，每个 target 走独立路径：
 http://localhost:18900/<name>/v1/...
+
+地址支持 Tailscale DNS 域名（如 vitasguo-g16-pro.tailc66d5e.ts.net），
+也支持 raw IP。HTTPS 服务需要加 scheme: https。
 
 【七、安全说明】
 

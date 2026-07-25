@@ -76,6 +76,17 @@ targets:
 
 With multiple targets, each is served at `http://localhost:18900/<name>/v1/...`.
 
+### Connecting via HTTPS or Tailscale DNS
+
+By default targets use `http://`, but you can add `scheme: https` for HTTPS services (e.g. OpenClaw web UI). The `address` field accepts Tailscale DNS names in addition to raw IPs:
+
+```yaml
+targets:
+  - name: openclaw
+    address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+    scheme: https
+```
+
 ## Point your agent at the bridge
 
 Once the tray icon turns green, any OpenAI-compatible agent can use the bridge. The bridge auto-injects the real API key, so fill in any non-empty string for `apiKey`.

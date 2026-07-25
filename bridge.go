@@ -40,6 +40,15 @@ type Target struct {
 	Name    string `yaml:"name"    json:"name"`
 	Address string `yaml:"address" json:"address"`
 	APIKey  string `yaml:"apikey"  json:"apikey"`
+	Scheme  string `yaml:"scheme"  json:"scheme"`
+}
+
+// targetScheme returns the URL scheme for this target, defaulting to "http".
+func (t Target) targetScheme() string {
+	if t.Scheme == "https" {
+		return "https"
+	}
+	return "http"
 }
 
 type Config struct {
@@ -352,7 +361,7 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 	// Single target → serve at /v1/...
 	if len(cfg.Targets) == 1 {
 		t := cfg.Targets[0]
-		targetURL, _ := url.Parse("http://" + t.Address)
+		targetURL, _ := url.Parse(t.targetScheme() + "://" + t.Address)
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -385,7 +394,7 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 	// Multiple targets → serve at /<name>/v1/...
 	for _, t := range cfg.Targets {
 		name := t.Name
-		targetURL, _ := url.Parse("http://" + t.Address)
+		targetURL, _ := url.Parse(t.targetScheme() + "://" + t.Address)
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.Transport = &http.Transport{
 			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {

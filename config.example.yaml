@@ -27,6 +27,11 @@ targets:
   - name: default
     address: "gpu-host:11434"
 
+  # Example: HTTPS target with Tailscale DNS name (e.g. OpenClaw web UI)
+  # - name: openclaw
+  #   address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+  #   scheme: https
+
   # Example: multiple GPU machines
   # - name: gpu1
   #   address: "gpu1:11434"
