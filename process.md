@@ -15,6 +15,7 @@
 - **新增**: Tailscale DNS — address 支持 MagicDNS 域名
 - **新增**: WebSocket 隧道 — 原始 TCP 隧道处理 HTTPS 后端的 WebSocket 升级（OpenClaw Gateway 等）
 - **修复**: ICO 图标 AND mask 行对齐（32→64 bytes），Windows 11 托盘图标正常渲染
+- **修复**: 保留原始 Host 头通过 ReverseProxy，修复 OpenClaw WebSocket URL 生成
 - **修复**: X-Forwarded-Proto 设为 `http`，避免后端生成 `wss://` URL
 - **文档**: README / config.example.yaml / 托盘使用说明 更新 DNS/scheme 示例
 - **项目**: process.md + traps.md 文档初始化

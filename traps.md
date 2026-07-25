@@ -49,13 +49,14 @@ PowerShell Here-String 使用 `@'` 和 `'@` 作为定界符，但在脚本中使
 
 ## 5. HTTPS 后端 WebSocket 连接失败（OpenClaw）
 
-**现象**: 浏览器通过桥接访问 OpenClaw（HTTPS 后端）时，Gateway WebSocket 连接断开，报错 `disconnected (1006): no reason`，提示"检查 WebSocket URL；当 Gateway 位于 HTTPS/Tailscale Serve 后面时使用 wss://"。
+**现象**: 浏览器通过桥接访问 OpenClaw（HTTPS 后端）时，页面能加载但 Gateway WebSocket 连接断开，报错 `disconnected (1006): no reason`，提示"检查 WebSocket URL；当 Gateway 位于 HTTPS/Tailscale Serve 后面时使用 wss://"。
 
-**根因**: [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go)
-Go 标准库的 `httputil.ReverseProxy` 对 HTTPS 后端的 WebSocket 升级支持不完善，TLS 握手后 WebSocket 隧道无法正常建立。此外 `X-Forwarded-Proto` 设为 `https` 会导致后端生成 `wss://` URL，但客户端是 HTTP 连接无法使用。
+**根因**: 两个问题：
+1. [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go) `httputil.NewSingleHostReverseProxy` 默认将 `req.Host` 改为后端地址（如 `vitasguo-g16-pro.tailc66d5e.ts.net:443`），OpenClaw 据此构造 WebSocket URL 指向 Tailscale DNS 域名，浏览器无法解析该域名（PC 未装 Tailscale）
+2. Go 标准库的 `ReverseProxy` 对 HTTPS 后端的 WebSocket 升级支持不完善
 
-**解决方案**: 
-1. [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go) 新增 `handleWebSocketTunnel()` 函数，检测到 `Upgrade: websocket` 请求时，直接创建原始 TCP 隧道（经 Tailscale `srv.Dial` 连接后端，HTTPS 场景做 TLS 握手，然后透传双向数据）
-2. 修改 `buildHandler()` 中的路由逻辑，WebSocket 升级请求走隧道，普通 HTTP 请求仍走 `ReverseProxy`
-3. 添加 `isWebSocketUpgrade()` 辅助函数
-4. `X-Forwarded-Proto` 从 `https` 改为 `http`，`X-Forwarded-Host` 保存原始客户端 Host
+**解决方案**:
+1. [bridge.go:393](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L393) 在 `Director` 中保存客户端原始 Host，调用 `origDirector` 后恢复 `req.Host = clientHost`，使后端收到 `Host: localhost:18900`，生成指向 localhost 的 WebSocket URL
+2. 新增 `handleWebSocketTunnel()` 函数，检测到 `Upgrade: websocket` 时创建原始 TCP 隧道（经 Tailscale 连接 + TLS 握手 + 透传双向数据）
+3. `X-Forwarded-Proto` 设为 `http`（客户端到 bridge 是 HTTP），避免后端生成 `wss://`
+4. 修复多 target 路由中路径前缀剥离后 `//` 双斜杠 bug
