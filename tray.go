@@ -305,7 +305,7 @@ func (t *TrayApp) showUsage() {
        apikey: "sk-lm-xxx"
 
      - name: openclaw         # Web UI（HTTPS + DNS 域名）
-       address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+       address: "your-host.your-tailnet.ts.net:443"
        scheme: https
 
    # 多个 target 写在同一个 targets: 列表里，每个是一个 - name: 条目
@@ -400,6 +400,8 @@ curl http://localhost:18900/v1/chat/completions ^
 - 本地端口默认监听 0.0.0.0:18900（同局域网其他机器可访问）
   右键托盘勾选"仅本机访问 (127.0.0.1)"可限制只允许本机连接
   桥接运行中切换会自动重启生效
+- ⚠️ 重要：config.yaml 包含 auth key 和 API key，不要分享或提交到 git
+  .gitignore 已自动忽略，提交前请确认没有误包含
 
 【八、许可证】
 

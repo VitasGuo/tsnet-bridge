@@ -29,7 +29,7 @@ targets:
 
   # Example: HTTPS target with Tailscale DNS name (e.g. OpenClaw web UI)
   # - name: openclaw
-  #   address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+  #   address: "your-host.your-tailnet.ts.net:443"
   #   scheme: https
 
   # Example: multiple GPU machines

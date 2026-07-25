@@ -60,11 +60,11 @@ autostart: false                     # auto-connect on launch (tray mode)
 
 targets:
   - name: default
-    address: "100.93.126.41:1234"    # remote LLM host:port on tailnet
+    address: "100.x.x.x:1234"    # remote LLM host:port on tailnet
     apikey: "sk-lm-xxx"              # optional, injected as Bearer token
 
   - name: openclaw                   # Web UI via HTTPS + DNS
-    address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+    address: "your-host.your-tailnet.ts.net:443"
     scheme: https
 ```
 
@@ -92,7 +92,7 @@ By default targets use `http://`, but you can add `scheme: https` for HTTPS serv
 ```yaml
 targets:
   - name: openclaw
-    address: "vitasguo-g16-pro.tailc66d5e.ts.net:443"
+    address: "your-host.your-tailnet.ts.net:443"
     scheme: https
 ```
 
