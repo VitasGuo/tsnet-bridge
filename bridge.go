@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -358,9 +361,8 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 		})
 	})
 
-	// Single target → serve at /v1/...
-	if len(cfg.Targets) == 1 {
-		t := cfg.Targets[0]
+	// buildProxy creates a reverse proxy for a single target.
+	buildProxy := func(t Target) *httputil.ReverseProxy {
 		targetURL, _ := url.Parse(t.targetScheme() + "://" + t.Address)
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		proxy.Transport = &http.Transport{
@@ -374,56 +376,54 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 				return srv.Dial(ctx, "tcp", t.Address)
 			},
 		}
-		// Inject API key if configured
 		origDirector := proxy.Director
 		apiKey := t.APIKey
 		proxy.Director = func(req *http.Request) {
+			forwardedHost := req.Host
 			origDirector(req)
 			if apiKey != "" {
 				req.Header.Set("Authorization", "Bearer "+apiKey)
 			}
+			req.Header.Set("X-Forwarded-For", req.RemoteAddr)
+			req.Header.Set("X-Forwarded-Host", forwardedHost)
+			req.Header.Set("X-Forwarded-Proto", "http")
 		}
+		return proxy
+	}
 
+	// Single target → serve at /v1/...
+	if len(cfg.Targets) == 1 {
+		t := cfg.Targets[0]
+		proxy := buildProxy(t)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			log.Printf("%s %s → %s", r.Method, r.URL.Path, t.Address)
+			if isWebSocketUpgrade(r) {
+				b.handleWebSocketTunnel(w, r, t)
+				return
+			}
 			proxy.ServeHTTP(w, r)
 		})
 		return mux
 	}
 
-	// Multiple targets → serve at /<name>/v1/...
+	// Multiple targets → serve at /<name>/...
 	for _, t := range cfg.Targets {
 		name := t.Name
-		targetURL, _ := url.Parse(t.targetScheme() + "://" + t.Address)
-		proxy := httputil.NewSingleHostReverseProxy(targetURL)
-		proxy.Transport = &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				b.mu.Lock()
-				srv := b.srv
-				b.mu.Unlock()
-				if srv == nil {
-					return nil, errors.New("bridge not running")
-				}
-				return srv.Dial(ctx, "tcp", t.Address)
-			},
-		}
-		origDirector := proxy.Director
-		apiKey := t.APIKey
-		proxy.Director = func(req *http.Request) {
-			origDirector(req)
-			if apiKey != "" {
-				req.Header.Set("Authorization", "Bearer "+apiKey)
-			}
-		}
-
+		proxy := buildProxy(t)
 		prefix := "/" + name + "/"
 		addr := t.Address
+		target := t
 		mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
 			r.URL.Path = r.URL.Path[len("/"+name):]
 			if r.URL.Path == "" {
 				r.URL.Path = "/"
 			}
 			log.Printf("%s %s → %s", r.Method, r.URL.Path, addr)
+			if isWebSocketUpgrade(r) {
+				r.URL.Path = "/" + r.URL.Path
+				b.handleWebSocketTunnel(w, r, target)
+				return
+			}
 			proxy.ServeHTTP(w, r)
 		})
 	}
@@ -459,4 +459,99 @@ func (b *Bridge) fail(err error) {
 	}
 	b.mu.Unlock()
 	log.Printf("bridge error: %v", err)
+}
+
+// handleWebSocketTunnel creates a raw TCP tunnel for WebSocket connections
+// through the Tailscale network. This handles cases where the standard
+// ReverseProxy has issues with WebSocket upgrades over TLS backends.
+func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, target Target) {
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		http.Error(w, "WebSocket not supported", http.StatusInternalServerError)
+		return
+	}
+	clientConn, _, err := hj.Hijack()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer clientConn.Close()
+
+	b.mu.Lock()
+	srv := b.srv
+	b.mu.Unlock()
+	if srv == nil {
+		return
+	}
+
+	backendConn, err := srv.Dial(r.Context(), "tcp", target.Address)
+	if err != nil {
+		log.Printf("websocket dial %s: %v", target.Address, err)
+		return
+	}
+	defer backendConn.Close()
+
+	// If the target uses HTTPS, do a TLS handshake over the Tailscale connection
+	var backend io.ReadWriter = backendConn
+	if target.targetScheme() == "https" {
+		host := target.Address
+		if idx := strings.LastIndex(host, ":"); idx >= 0 {
+			host = host[:idx]
+		}
+		tlsConn := tls.Client(backendConn, &tls.Config{
+			ServerName: host,
+		})
+		if err := tlsConn.Handshake(); err != nil {
+			log.Printf("websocket tls handshake %s: %v", target.Address, err)
+			return
+		}
+		backend = tlsConn
+		defer tlsConn.Close()
+	}
+
+	// Fix Host header for the backend
+	r.Host = target.Address
+	// Forward headers
+	r.Header.Set("X-Forwarded-For", r.RemoteAddr)
+	r.Header.Set("X-Forwarded-Host", r.Host)
+	r.Header.Set("X-Forwarded-Proto", "https")
+
+	// Forward the HTTP upgrade request to the backend
+	if err := r.Write(backend); err != nil {
+		log.Printf("websocket write request: %v", err)
+		return
+	}
+
+	// Read the backend's response (101 Switching Protocols)
+	resp, err := http.ReadResponse(bufio.NewReader(backend), r)
+	if err != nil {
+		log.Printf("websocket read response: %v", err)
+		return
+	}
+
+	// Write the response to the client
+	if err := resp.Write(clientConn); err != nil {
+		log.Printf("websocket write response: %v", err)
+		return
+	}
+
+	// Tunnel bidirectional data
+	log.Printf("websocket tunnel established: %s", target.Address)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		io.Copy(backend, clientConn)
+	}()
+	go func() {
+		defer wg.Done()
+		io.Copy(clientConn, backend)
+	}()
+	wg.Wait()
+}
+
+// isWebSocketUpgrade returns true if the request is a WebSocket upgrade.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket") &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }
