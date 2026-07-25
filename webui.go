@@ -148,8 +148,12 @@ func (w *WebUI) handleTest(resp http.ResponseWriter, req *http.Request) {
 
 	listenAddr := w.cfg.Listen
 	url := fmt.Sprintf("http://127.0.0.1%s/v1/chat/completions", normalizePort(listenAddr))
-	chatReq := fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":100}`, body.Model, body.Message)
-	httpResp, err := http.Post(url, "application/json", stringReader(chatReq))
+	chatBody, _ := json.Marshal(map[string]any{
+		"model":      body.Model,
+		"messages":   []map[string]string{{"role": "user", "content": body.Message}},
+		"max_tokens": 100,
+	})
+	httpResp, err := http.Post(url, "application/json", stringReader(string(chatBody)))
 	if err != nil {
 		http.Error(resp, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusBadGateway)
 		return

@@ -429,6 +429,22 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// WebSocket upgrade at root level — try to route by Referer
+		if isWebSocketUpgrade(r) {
+			log.Printf("websocket upgrade at root: %s %s (Origin: %s, Referer: %s)",
+				r.Method, r.URL.RequestURI(), r.Header.Get("Origin"), r.Header.Get("Referer"))
+
+			// Try to find the target from the Referer header
+			if target := b.resolveTargetFromReferer(r, cfg); target != nil {
+				b.handleWebSocketTunnel(w, r, *target)
+				return
+			}
+			log.Printf("websocket upgrade at root: no matching target found for Referer: %s", r.Header.Get("Referer"))
+			http.Error(w, `{"error":"websocket upgrade received but no matching target found"}`, http.StatusBadGateway)
+			return
+		}
+
+		// Normal request: return service info
 		w.Header().Set("Content-Type", "application/json")
 		b.mu.Lock()
 		targets := make(map[string]string)
@@ -443,6 +459,23 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 	})
 
 	return mux
+}
+
+// resolveTargetFromReferer checks the Referer header to find which target
+// a request belongs to. This is needed for WebSocket connections from
+// frontends that construct WS URLs without the /<name>/ prefix.
+func (b *Bridge) resolveTargetFromReferer(r *http.Request, cfg Config) *Target {
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		return nil
+	}
+	for _, t := range cfg.Targets {
+		prefix := "/" + t.Name + "/"
+		if strings.Contains(referer, prefix) {
+			return &t
+		}
+	}
+	return nil
 }
 
 func (b *Bridge) fail(err error) {
@@ -462,9 +495,11 @@ func (b *Bridge) fail(err error) {
 }
 
 // handleWebSocketTunnel creates a raw TCP tunnel for WebSocket connections
-// through the Tailscale network. This handles cases where the standard
-// ReverseProxy has issues with WebSocket upgrades over TLS backends.
+// through the Tailscale network.
 func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, target Target) {
+	log.Printf("websocket tunnel: upgrading %s %s for target %s (address=%s, scheme=%s)",
+		r.Method, r.URL.RequestURI(), target.Name, target.Address, target.targetScheme())
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		http.Error(w, "WebSocket not supported", http.StatusInternalServerError)
@@ -498,8 +533,12 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 		if idx := strings.LastIndex(host, ":"); idx >= 0 {
 			host = host[:idx]
 		}
+		// Tailscale serves its own TLS certificate (MagicDNS) which may not be
+		// in the system trust store. Skip verification because the connection
+		// is already secured by WireGuard encryption.
 		tlsConn := tls.Client(backendConn, &tls.Config{
-			ServerName: host,
+			ServerName:         host,
+			InsecureSkipVerify: true,
 		})
 		if err := tlsConn.Handshake(); err != nil {
 			log.Printf("websocket tls handshake %s: %v", target.Address, err)
@@ -507,6 +546,7 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 		}
 		backend = tlsConn
 		defer tlsConn.Close()
+		log.Printf("websocket tls handshake OK: %s (SNI=%s)", target.Address, host)
 	}
 
 	// Forward headers
@@ -526,6 +566,7 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 		log.Printf("websocket read response: %v", err)
 		return
 	}
+	log.Printf("websocket upgrade response: %d %s", resp.StatusCode, resp.Status)
 
 	// Write the response to the client
 	if err := resp.Write(clientConn); err != nil {
@@ -534,7 +575,7 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 	}
 
 	// Tunnel bidirectional data
-	log.Printf("websocket tunnel established: %s", target.Address)
+	log.Printf("websocket tunnel established: %s → %s", r.Host, target.Address)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
@@ -546,6 +587,7 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 		io.Copy(clientConn, backend)
 	}()
 	wg.Wait()
+	log.Printf("websocket tunnel closed: %s", target.Address)
 }
 
 // isWebSocketUpgrade returns true if the request is a WebSocket upgrade.
