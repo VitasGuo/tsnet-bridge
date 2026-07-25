@@ -35,3 +35,6 @@ state/
 # Test artifacts
 *.test
 *.out
+
+# LLM agent artifacts
+.mimocode/
