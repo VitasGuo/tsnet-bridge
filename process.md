@@ -15,7 +15,8 @@
 - **新增**: Tailscale DNS — address 支持 MagicDNS 域名
 - **修复**: ICO 图标 AND mask 行对齐（32→64 bytes），Windows 11 托盘图标正常渲染
 - **文档**: README / config.example.yaml / 托盘使用说明 更新 DNS/scheme 示例
-- **发布**: GitHub Release v0.2.0
+- **项目**: process.md + traps.md 文档初始化
+- **发布**: GitHub Release v0.2.0 (https://github.com/VitasGuo/tsnet-bridge/releases/tag/v0.2.0)
 
 ### v0.1.0 (2026-07-24)
 - 系统托盘作为默认界面

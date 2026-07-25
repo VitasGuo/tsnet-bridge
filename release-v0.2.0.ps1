@@ -8,7 +8,7 @@ $repo = "VitasGuo/tsnet-bridge"
 $tag = "v0.2.0"
 $headers = @{ Authorization = "Bearer $token"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2022-11-28" }
 
-$tagBody = @{ ref = "refs/tags/$tag"; sha = "d7abe7a" } | ConvertTo-Json
+$tagBody = @{ ref = "refs/tags/$tag"; sha = "1fc9fc4" } | ConvertTo-Json
 Write-Host "=== creating tag ref ==="
 try {
     $r = Invoke-RestMethod -Uri "https://api.github.com/repos/$repo/git/refs" -Method POST -Headers $headers -Body $tagBody -ContentType "application/json" -TimeoutSec 30
