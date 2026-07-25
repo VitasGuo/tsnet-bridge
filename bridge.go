@@ -379,14 +379,15 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 		origDirector := proxy.Director
 		apiKey := t.APIKey
 		proxy.Director = func(req *http.Request) {
-			forwardedHost := req.Host
+			clientHost := req.Host
 			origDirector(req)
 			if apiKey != "" {
 				req.Header.Set("Authorization", "Bearer "+apiKey)
 			}
 			req.Header.Set("X-Forwarded-For", req.RemoteAddr)
-			req.Header.Set("X-Forwarded-Host", forwardedHost)
+			req.Header.Set("X-Forwarded-Host", clientHost)
 			req.Header.Set("X-Forwarded-Proto", "http")
+			req.Host = clientHost
 		}
 		return proxy
 	}
@@ -420,7 +421,6 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 			}
 			log.Printf("%s %s → %s", r.Method, r.URL.Path, addr)
 			if isWebSocketUpgrade(r) {
-				r.URL.Path = "/" + r.URL.Path
 				b.handleWebSocketTunnel(w, r, target)
 				return
 			}
@@ -509,14 +509,12 @@ func (b *Bridge) handleWebSocketTunnel(w http.ResponseWriter, r *http.Request, t
 		defer tlsConn.Close()
 	}
 
-	// Fix Host header for the backend
-	r.Host = target.Address
 	// Forward headers
 	r.Header.Set("X-Forwarded-For", r.RemoteAddr)
 	r.Header.Set("X-Forwarded-Host", r.Host)
-	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Proto", "http")
 
-	// Forward the HTTP upgrade request to the backend
+	// Forward the HTTP upgrade request to the backend (preserving original Host)
 	if err := r.Write(backend); err != nil {
 		log.Printf("websocket write request: %v", err)
 		return
