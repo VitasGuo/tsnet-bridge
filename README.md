@@ -20,7 +20,7 @@ Agent / Browser  ──HTTP──►  tsnet-bridge  ──WireGuard──►  Re
 
 ## Quick start
 
-1. Download `tsnet-bridge.exe` (or build from source — see below).
+1. Download `tsnet-bridge.exe` (from [Releases](https://github.com/VitasGuo/tsnet-bridge/releases/latest) or build from source — see below).
 2. On your remote host: install Tailscale, note the host's Tailscale IP (`100.x.x.x`) or DNS name.
 3. Generate an **ephemeral** Tailscale auth key at <https://login.tailscale.com/admin/settings/keys>.
 4. Double-click `tsnet-bridge.exe`. A tray icon appears in the bottom-right notification area.
