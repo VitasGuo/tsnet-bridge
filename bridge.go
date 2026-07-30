@@ -55,13 +55,14 @@ func (t Target) targetScheme() string {
 }
 
 type Config struct {
-	AuthKey   string   `yaml:"authkey"    json:"authkey"`
-	Hostname  string   `yaml:"hostname"   json:"hostname"`
-	Ephemeral *bool    `yaml:"ephemeral"  json:"ephemeral"`
-	Listen    string   `yaml:"listen"     json:"listen"`
-	StateDir  string   `yaml:"state-dir"  json:"stateDir"`
-	Targets   []Target `yaml:"targets"    json:"targets"`
-	AutoStart bool     `yaml:"autostart"  json:"autostart"`
+	AuthKey     string   `yaml:"authkey"    json:"authkey"`
+	Hostname    string   `yaml:"hostname"   json:"hostname"`
+	Ephemeral   *bool    `yaml:"ephemeral"  json:"ephemeral"`
+	Listen      string   `yaml:"listen"     json:"listen"`
+	StateDir    string   `yaml:"state-dir" json:"stateDir"`
+	Targets     []Target `yaml:"targets"    json:"targets"`
+	DefaultName string   `yaml:"default_target" json:"default_target"` // Fallback target for WebSocket connections without path prefix
+	AutoStart   bool     `yaml:"autostart"  json:"autostart"`
 }
 
 func defaultConfig() Config {
@@ -138,6 +139,20 @@ func saveConfig(cfg Config) error {
 		return err
 	}
 	return os.WriteFile(p, data, 0600)
+}
+
+// defaultTarget returns the target to use when WebSocket connections have no path prefix.
+// This is needed for frontends that connect to ws://host:port/ or ws://host:port/gateway.
+func defaultTarget(cfg Config) *Target {
+	if cfg.DefaultName == "" {
+		return nil
+	}
+	for i := range cfg.Targets {
+		if cfg.Targets[i].Name == cfg.DefaultName {
+			return &cfg.Targets[i]
+		}
+	}
+	return nil
 }
 
 // -------------------------------------------------------
@@ -344,11 +359,11 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 			http.Error(w, `{"status":"error","error":"not running"}`, http.StatusServiceUnavailable)
 			return
 		}
-		st, err := srv.Up(context.Background())
-		if err != nil {
-			http.Error(w, fmt.Sprintf(`{"status":"error","error":"%s"}`, err.Error()), http.StatusServiceUnavailable)
-			return
-		}
+			st, err := srv.Up(context.Background())
+			if err != nil {
+				http.Error(w, `{"status":"error","error":"Tailscale connection failed"}`, http.StatusServiceUnavailable)
+				return
+			}
 		ip := ""
 		if len(st.Self.TailscaleIPs) > 0 {
 			ip = st.Self.TailscaleIPs[0].String()
@@ -375,6 +390,13 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 				}
 				return srv.Dial(ctx, "tcp", t.Address)
 			},
+			// Set timeouts to prevent long-running requests from blocking
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			ResponseHeaderTimeout: 60 * time.Second,
+			// Disable HTTP/2 to avoid issues with some backends (e.g., OpenClaw)
+			ForceAttemptHTTP2: false,
 		}
 		origDirector := proxy.Director
 		apiKey := t.APIKey
@@ -392,73 +414,140 @@ func (b *Bridge) buildHandler(cfg Config) http.Handler {
 		return proxy
 	}
 
-	// Single target → serve at /v1/...
-	if len(cfg.Targets) == 1 {
-		t := cfg.Targets[0]
-		proxy := buildProxy(t)
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("%s %s → %s", r.Method, r.URL.Path, t.Address)
+		// Single target → serve at /v1/...
+		if len(cfg.Targets) == 1 {
+			t := cfg.Targets[0]
+			proxy := buildProxy(t)
+			mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
+				log.Printf("%s %s → %s", r.Method, r.URL.Path, t.Address)
+				if isWebSocketUpgrade(r) {
+					b.handleWebSocketTunnel(w, r, t)
+					return
+				}
+				proxy.ServeHTTP(w, r)
+			})
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				log.Printf("%s %s → %s", r.Method, r.URL.Path, t.Address)
+				if isWebSocketUpgrade(r) {
+					b.handleWebSocketTunnel(w, r, t)
+					return
+				}
+				proxy.ServeHTTP(w, r)
+				})
+				return mux
+			}
+
+				// Multiple targets → serve at /<name>/...
+				var defaultProxy *httputil.ReverseProxy
+				for _, t := range cfg.Targets {
+					name := t.Name
+					prefix := "/" + name + "/"
+					addr := t.Address
+					target := t
+
+					// Create a unique proxy for each target to avoid closure issues
+					targetProxy := buildProxy(t)
+					if t.Name == "default" {
+						defaultProxy = targetProxy
+					}
+
+					mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
+						r.URL.Path = r.URL.Path[len("/"+name):]
+						if r.URL.Path == "" {
+							r.URL.Path = "/"
+						}
+						log.Printf("%s %s → %s", r.Method, r.URL.Path, addr)
+						if isWebSocketUpgrade(r) {
+							b.handleWebSocketTunnel(w, r, target)
+							return
+						}
+						targetProxy.ServeHTTP(w, r)
+					})
+				}
+
+			// Add /v1/ route that forwards to default_target for OpenAI-compatible API calls
+			// This allows accessing /v1/chat/completions, /v1/models, etc. without /<name>/ prefix
+			mux.HandleFunc("/v1/", func(w http.ResponseWriter, r *http.Request) {
+				log.Printf("%s %s → default target", r.Method, r.URL.Path)
+				if isWebSocketUpgrade(r) {
+					// Find default target
+					defaultTarget := defaultTarget(cfg)
+					if defaultTarget != nil {
+						b.handleWebSocketTunnel(w, r, *defaultTarget)
+					} else {
+						http.Error(w, `{"error":"default target not configured"}`, http.StatusBadGateway)
+					}
+					return
+				}
+				if defaultProxy != nil {
+					defaultProxy.ServeHTTP(w, r)
+				} else {
+					http.Error(w, `{"error":"default target not configured"}`, http.StatusBadGateway)
+				}
+			})
+
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// WebSocket upgrade — try to route by path or Referer
 			if isWebSocketUpgrade(r) {
-				b.handleWebSocketTunnel(w, r, t)
-				return
+				log.Printf("websocket upgrade: %s %s (Origin: %s, Referer: %s)",
+					r.Method, r.URL.RequestURI(), r.Header.Get("Origin"), r.Header.Get("Referer"))
+
+					// Try to find the target from the path (e.g., /openclaw/, /llama3/, etc.)
+					target := b.resolveTargetFromPath(r.URL.Path, cfg)
+					if target != nil {
+						b.handleWebSocketTunnel(w, r, *target)
+						return
+					}
+
+					// Try to find the target from the Referer header
+					if target := b.resolveTargetFromReferer(r, cfg); target != nil {
+						b.handleWebSocketTunnel(w, r, *target)
+						return
+					}
+
+					// Fall back to default target if configured
+					if defaultTarget := defaultTarget(cfg); defaultTarget != nil {
+						log.Printf("websocket upgrade: using default target %s for path: %s, referer: %s",
+							defaultTarget.Name, r.URL.Path, r.Header.Get("Referer"))
+						b.handleWebSocketTunnel(w, r, *defaultTarget)
+						return
+					}
+
+					log.Printf("websocket upgrade: no matching target found for path: %s, referer: %s",
+						r.URL.Path, r.Header.Get("Referer"))
+					http.Error(w, `{"error":"websocket upgrade received but no matching target found"}`, http.StatusBadGateway)
+					return
 			}
-			proxy.ServeHTTP(w, r)
+
+			// Normal request: return service info
+			w.Header().Set("Content-Type", "application/json")
+			b.mu.Lock()
+			targets := make(map[string]string)
+			for _, t := range b.cfg.Targets {
+				targets[t.Name] = t.Address
+			}
+			b.mu.Unlock()
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"service": "tsnet-bridge",
+				"targets": targets,
+			})
 		})
-		return mux
-	}
-
-	// Multiple targets → serve at /<name>/...
-	for _, t := range cfg.Targets {
-		name := t.Name
-		proxy := buildProxy(t)
-		prefix := "/" + name + "/"
-		addr := t.Address
-		target := t
-		mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
-			r.URL.Path = r.URL.Path[len("/"+name):]
-			if r.URL.Path == "" {
-				r.URL.Path = "/"
-			}
-			log.Printf("%s %s → %s", r.Method, r.URL.Path, addr)
-			if isWebSocketUpgrade(r) {
-				b.handleWebSocketTunnel(w, r, target)
-				return
-			}
-			proxy.ServeHTTP(w, r)
-		})
-	}
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// WebSocket upgrade at root level — try to route by Referer
-		if isWebSocketUpgrade(r) {
-			log.Printf("websocket upgrade at root: %s %s (Origin: %s, Referer: %s)",
-				r.Method, r.URL.RequestURI(), r.Header.Get("Origin"), r.Header.Get("Referer"))
-
-			// Try to find the target from the Referer header
-			if target := b.resolveTargetFromReferer(r, cfg); target != nil {
-				b.handleWebSocketTunnel(w, r, *target)
-				return
-			}
-			log.Printf("websocket upgrade at root: no matching target found for Referer: %s", r.Header.Get("Referer"))
-			http.Error(w, `{"error":"websocket upgrade received but no matching target found"}`, http.StatusBadGateway)
-			return
-		}
-
-		// Normal request: return service info
-		w.Header().Set("Content-Type", "application/json")
-		b.mu.Lock()
-		targets := make(map[string]string)
-		for _, t := range b.cfg.Targets {
-			targets[t.Name] = t.Address
-		}
-		b.mu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"service": "tsnet-bridge",
-			"targets": targets,
-		})
-	})
 
 	return mux
+}
+
+// resolveTargetFromPath checks the request path to find which target
+// a request belongs to. This handles WebSocket connections from frontends
+// that use paths like /gateway, /chat, etc. without the /<name>/ prefix.
+func (b *Bridge) resolveTargetFromPath(path string, cfg Config) *Target {
+	// Check if path matches any target's prefix
+	for _, t := range cfg.Targets {
+		prefix := "/" + t.Name + "/"
+		if strings.HasPrefix(path, prefix) {
+			return &t
+		}
+	}
+	return nil
 }
 
 // resolveTargetFromReferer checks the Referer header to find which target

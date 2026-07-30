@@ -60,3 +60,42 @@ PowerShell Here-String 使用 `@'` 和 `'@` 作为定界符，但在脚本中使
 2. 新增 `handleWebSocketTunnel()` 函数，检测到 `Upgrade: websocket` 时创建原始 TCP 隧道（经 Tailscale 连接 + TLS 握手 + 透传双向数据）
 3. `X-Forwarded-Proto` 设为 `http`（客户端到 bridge 是 HTTP），避免后端生成 `wss://`
 4. 修复多 target 路由中路径前缀剥离后 `//` 双斜杠 bug
+
+---
+
+## 6. OpenClaw Web UI 登录超时（1006 错误）
+
+**现象**: 浏览器访问 `http://localhost:18900/openclaw/` 页面能加载，但点击登录时 WebSocket 连接超时（2分钟），最终报错 `disconnected (1006): no reason`。
+
+**根因**: ReverseProxy 缺少超时配置，导致长连接被阻塞无法响应。
+
+**解决方案**: [bridge.go:368-398](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L368)
+- 添加 `IdleConnTimeout: 90s`
+- 添加 `TLSHandshakeTimeout: 10s`
+- 添加 `ExpectContinueTimeout: 1s`
+- 添加 `ResponseHeaderTimeout: 60s`
+- 设置 `ForceAttemptHTTP2: false` 避免某些后端（如 OpenClaw）的 HTTP/2 问题
+
+---
+
+## 7. 单 target 模式下 LLM API 请求返回错误
+
+**现象**: 配置单 target 时，访问 `/v1/chat/completions` 返回 bridge 服务信息而不是 LLM 响应。
+
+**根因**: 单 target 模式下只注册了 `/` 路由，缺少 `/v1/` 路由处理。
+
+**解决方案**: [bridge.go:406-421](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L406)
+- 单 target 模式下同时注册 `/` 和 `/v1/` 两个路由处理器
+- `/v1/` 路由只代理 API 请求，保留 `/` 路由给其他用途
+
+---
+
+## 8. OpenClaw WebSocket URL 缺少路径前缀
+
+**现象**: OpenClaw Web UI 的 WebSocket 连接（如 `ws://localhost:18900/gateway`）没有 `/openclaw/` 前缀，落入兜底 handler 导致连接失败。
+
+**根因**: 兜底 handler 只支持通过 Referer 头路由，但某些前端生成的 WebSocket URL 不包含完整路径。
+
+**解决方案**:
+1. [bridge.go:446-476](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L446) 兜底 handler 现在同时检查请求路径和 Referer 头
+2. 新增 `resolveTargetFromPath()` 函数，根据请求路径自动路由到对应 target
