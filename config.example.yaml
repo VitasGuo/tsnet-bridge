@@ -20,6 +20,10 @@ listen: ":18900"
 # Auto-connect on app launch (tray mode only)
 autostart: false
 
+# Default target for /v1/ route and WebSocket fallback (multi-target mode only).
+# If unset, the first target in the list is used as default.
+# default_target: default
+
 # Remote LLM backends on the tailnet.
 # Single target: served at http://localhost:18900/v1/... (standard OpenAI API)
 # Multiple targets: served at http://localhost:18900/<name>/v1/...

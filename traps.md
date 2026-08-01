@@ -52,7 +52,7 @@ PowerShell Here-String 使用 `@'` 和 `'@` 作为定界符，但在脚本中使
 **现象**: 浏览器通过桥接访问 OpenClaw（HTTPS 后端）时，页面能加载但 Gateway WebSocket 连接断开，报错 `disconnected (1006): no reason`，提示"检查 WebSocket URL；当 Gateway 位于 HTTPS/Tailscale Serve 后面时使用 wss://"。
 
 **根因**: 两个问题：
-1. [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go) `httputil.NewSingleHostReverseProxy` 默认将 `req.Host` 改为后端地址（如 `vitasguo-g16-pro.tailc66d5e.ts.net:443`），OpenClaw 据此构造 WebSocket URL 指向 Tailscale DNS 域名，浏览器无法解析该域名（PC 未装 Tailscale）
+1. [bridge.go](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go) `httputil.NewSingleHostReverseProxy` 默认将 `req.Host` 改为后端地址（如 `your-host.ts.net:443`），OpenClaw 据此构造 WebSocket URL 指向 Tailscale DNS 域名，浏览器无法解析该域名（PC 未装 Tailscale）
 2. Go 标准库的 `ReverseProxy` 对 HTTPS 后端的 WebSocket 升级支持不完善
 
 **解决方案**:
@@ -99,3 +99,17 @@ PowerShell Here-String 使用 `@'` 和 `'@` 作为定界符，但在脚本中使
 **解决方案**:
 1. [bridge.go:446-476](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L446) 兜底 handler 现在同时检查请求路径和 Referer 头
 2. 新增 `resolveTargetFromPath()` 函数，根据请求路径自动路由到对应 target
+
+---
+
+## 9. WebSocket 隧道 bufio.Reader 数据丢失（1006 真正根因）
+
+**现象**: WebSocket 隧道建立后，101 响应成功返回，但连接随即断开（1006）。日志显示 "websocket tunnel established" 但客户端立即收到 EOF。
+
+**根因**: [bridge.go:626](file:///c:/Users/even/Documents/SOLO-Even/tsnet-bridge/bridge.go#L626)
+`http.ReadResponse(bufio.NewReader(backend), r)` 创建的 `bufio.Reader` 会从底层连接预读数据。101 响应头之后，后端可能立即发送了 WebSocket 数据帧，这些字节被 `bufio.Reader` 缓冲在内存中。但随后的 `io.Copy(clientConn, backend)` 直接从原始连接读取，跳过了 bufio 缓冲区，导致这些字节永久丢失。
+
+**解决方案**:
+1. 保留 `bufReader` 引用，不再用 `bufio.NewReader` 创建后丢弃
+2. `resp.Write(clientConn)` 后，检查 `bufReader.Buffered()` 并用 `Peek` 取出缓冲数据写入客户端
+3. 双向隧道中，后端→客户端方向改为 `io.Copy(clientConn, bufReader)` 而非 `io.Copy(clientConn, rawBackend)`

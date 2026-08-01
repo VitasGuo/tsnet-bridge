@@ -4,8 +4,8 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os/exec"
@@ -129,8 +129,8 @@ func (w *WebUI) handleTest(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var body struct {
-		Model    string `json:"model"`
-		Message  string `json:"message"`
+		Model   string `json:"model"`
+		Message string `json:"message"`
 	}
 	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
 		http.Error(resp, `{"error":"invalid body"}`, http.StatusBadRequest)
